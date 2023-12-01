@@ -5,6 +5,8 @@ primitive starting point for haskell repos
 
 ----
 
+# plain
+
 with initial
 - stack.yaml
 - package.yaml
@@ -17,5 +19,12 @@ and example lib and executable
 build:
 
     stack build
+
+----
+
+# imgui
+
+helloworld for dear-imgui
+
 
 

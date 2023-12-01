@@ -1,0 +1,8 @@
+cradle:
+  stack:
+    stackYaml: stack.yaml
+    components:
+      - path: "./src/helloworld1"
+        component: "helloworld1:lib"
+      - path: "./src/app/HelloWorld.hs"
+        component: "helloworld:exe:HelloWorld"
