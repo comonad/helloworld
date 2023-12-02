@@ -21,6 +21,7 @@ dependencies:
   - managed
   - sdl2
   - gl
+  - text
   #- http-client >= 0.6.4.1
   #- http-types >= 0.9.1
   #- HTTP >= 4000.3.7
