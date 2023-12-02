@@ -3,6 +3,8 @@
 {-# language OverloadedStrings #-}
 {-# language NamedFieldPuns #-}
 {-# language RecordWildCards #-}
+{-# language PackageImports #-}
+{-# language ViewPatterns #-}
 
 
 module Main ( main ) where
@@ -11,13 +13,14 @@ import Control.Exception
 import Control.Monad.IO.Class
 import Control.Monad.Managed
 import Control.Monad
+import Control.Applicative
 import qualified DearImGui as ImGui
 import qualified DearImGui.Raw as ImGui_RAW
 import qualified DearImGui.Raw.DrawList as ImGui_DL
 import qualified DearImGui.OpenGL2 as ImGui_OGL2 (openGL2Init,openGL2Shutdown,openGL2NewFrame,openGL2RenderDrawData)
 import qualified DearImGui.SDL.OpenGL as ImGui_SDL_OGL (sdl2InitForOpenGL)
 import qualified DearImGui.SDL as ImGui_SDL (sdl2Shutdown,sdl2NewFrame,pollEventsWithImGui)
-import qualified Graphics.GL as GL
+import qualified "OpenGLRaw" Graphics.GL as GL
 import qualified SDL
 import qualified SDL.Internal.Numbered as SDL_N
 import Data.Bits
@@ -31,7 +34,9 @@ import Data.Set as Set
 import Data.Int
 import Data.Word
 import qualified Foreign
-
+import qualified "JuicyPixels" Codec.Picture as JuicyPixels
+import Canvas
+import Data.Typeable
 
 main :: IO ()
 main = do
@@ -81,12 +86,12 @@ data Mousedata = Mousedata
     , md_events :: ![Mouseevent]
     }
 
-data Model = Model {tabledata :: IORef Tabledata, mousedata::Mousedata}
+data Model = Model {tabledata :: IORef Tabledata, mousedata::Mousedata, tex1::Maybe Tex}
 initModel :: IO (IORef Model)
 initModel = do
     tabledata <- newIORef [("1","2","3"), ("4","5","6"), ("4","3","1")]
     let md = Mousedata (SDL.P $ SDL.V2 0 0) Set.empty []
-    newIORef $ Model tabledata md
+    newIORef $ Model tabledata md Nothing
 
 sortBySortSpec :: ImGui.TableSortingSpecs -> Tabledata -> Tabledata
 sortBySortSpec sortSpec = sortBy comp
@@ -103,12 +108,40 @@ sortBySortSpec sortSpec = sortBy comp
 instance Semigroup ImGui.ImVec2 where
     (<>) (ImGui.ImVec2 x1 y1) (ImGui.ImVec2 x2 y2) = ImGui.ImVec2 (x1+x2) (y1+y2)
 
+img1 :: (Int,Int) -> JuicyPixels.Image JuicyPixels.PixelRGBA8
+img1 (w,h) = JuicyPixels.generateImage f w h where f (fromIntegral->x) (fromIntegral->y) = JuicyPixels.PixelRGBA8 255 (y+x) (y*y+x*x) 255
+
 mainLoop :: SDL.Window -> IORef Model -> IO ()
 mainLoop window ioref_model = unlessQuit $ \mouseevts -> do
     -- Tell ImGui we're starting a new frame
     ImGui_OGL2.openGL2NewFrame
     ImGui_SDL.sdl2NewFrame
     ImGui.newFrame
+
+    ImGui.withWindowOpen "image" do
+        ImGui.withChildOpen "image renderer" (ImGui.ImVec2 0 0) False (ImGui.ImGuiWindowFlags_NoBackground .|. ImGui.ImGuiWindowFlags_NoTitleBar .|. ImGui.ImGuiWindowFlags_NoScrollbar) $ do
+            model <- readIORef ioref_model
+            case tex1 model of
+                Nothing -> do
+                    tex <- Canvas.toTextureI (img1 (256,256))
+                    atomicModifyIORef ioref_model \m -> (,()) $ m{tex1=Just tex}
+                Just _ -> return ()
+            model <- readIORef ioref_model
+            let Just (Tex user_texture_id (fromIntegral->width) (fromIntegral->height)) = tex1 model
+            let openGLtextureID = Foreign.intPtrToPtr $ fromIntegral $ user_texture_id
+
+            --let size = (ImGui.ImVec2 width height)
+            size <- ImGui.getWindowSize
+
+            Foreign.with size \sizePtr ->
+                Foreign.with (ImGui.ImVec2 0 0) \uv0Ptr ->
+                  Foreign.with (ImGui.ImVec2 1 1) \uv1Ptr ->
+                    Foreign.with (ImGui.ImVec4 1 1 1 1) \tintColPtr -> -- mask
+                      Foreign.with (ImGui.ImVec4 1 1 0 1) \borderColPtr -> do -- yellow border
+                        ImGui.image openGLtextureID sizePtr uv0Ptr uv1Ptr tintColPtr borderColPtr
+                        --ImGui_RAW.imageButton openGLtextureID sizePtr uv0Ptr uv1Ptr (-1) borderColPtr tintColPtr
+                        return ()
+
 
 
 
@@ -138,6 +171,8 @@ mainLoop window ioref_model = unlessQuit $ \mouseevts -> do
 
         addRect (windowpos <> contentpos <> ImGui.ImVec2 (-1) (-1)) (windowpos <> contentpos <> canvasSize) 0xffffffff 1
 
+
+
         model <- readIORef ioref_model
         let mp = case md_pos (mousedata model) of SDL.P (SDL.V2 x y) -> ImGui.ImVec2 (fromIntegral x) (fromIntegral y)
         addCircleFilled mp 16 0xffff0000
@@ -161,7 +196,7 @@ mainLoop window ioref_model = unlessQuit $ \mouseevts -> do
             True  -> putStrLn "Ow!"
 
         let columncount = 3
-        (Model tabledata md) <- readIORef ioref_model
+        (Model tabledata md _) <- readIORef ioref_model
         let f = List.foldl1' (.|.) [ ImGui.ImGuiTableFlags_SizingStretchSame, ImGui.ImGuiTableFlags_Resizable
                                    , ImGui.ImGuiTableFlags_Reorderable
                                    , ImGui.ImGuiTableFlags_Hideable
