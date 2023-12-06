@@ -37,6 +37,10 @@ import qualified Foreign
 import qualified "JuicyPixels" Codec.Picture as JuicyPixels
 import Canvas
 import Data.Typeable
+import qualified Data.StateVar as StateVar
+-- TODO: game Orbito
+-- TODO: game Hive
+
 
 main :: IO ()
 main = do
@@ -64,6 +68,9 @@ main = do
 
         -- Initialize ImGui's OpenGL backend
         _ <- managed_ $ bracket_ ImGui_OGL2.openGL2Init ImGui_OGL2.openGL2Shutdown
+
+        --liftIO $ StateVar.get SDL.swapInterval >>= print
+        liftIO $ SDL.swapInterval StateVar.$= SDL.SynchronizedUpdates
 
         liftIO $ mainLoop window model
 
