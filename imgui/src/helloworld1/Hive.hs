@@ -106,6 +106,7 @@ dr (Stone player insect) = f x
                 Spider -> spiderDrawing
 
 dr' :: [Stone] -> Drawing PixelRGBA8 ()
+dr' [] = mempty
 dr' (fmap dr->(s:ss)) = mconcat $ s : [ R.withTransformation (R.translate (R.V2 50 y) <> R.scale 0.17 0.17) s
                                       | s<-ss | y<-[60,30,0,-30,-60]]
 

@@ -137,7 +137,11 @@ mainLoop window ioref_model = unlessQuit $ \mouseevts -> do
 
     ImGui.withWindowOpen "Hive" do
         (windowpos::ImGui.ImVec2)<-ImGui.getWindowPos
-        ImGui.withChildOpen "image renderer" (ImGui.ImVec2 0 0) False (ImGui.ImGuiWindowFlags_NoBackground .|. ImGui.ImGuiWindowFlags_NoTitleBar .|. ImGui.ImGuiWindowFlags_NoScrollbar) $ do
+        ImGui.withChildOpen "image renderer" (ImGui.ImVec2 0 0) False (  ImGui.ImGuiWindowFlags_NoMove
+                                                                     .|. ImGui.ImGuiWindowFlags_NoBackground
+                                                                     .|. ImGui.ImGuiWindowFlags_NoTitleBar
+                                                                     .|. ImGui.ImGuiWindowFlags_NoScrollbar
+                                                                      ) $ do
             (childwindowpos::ImGui.ImVec2)<-ImGui.getWindowPos
             (contentpos::ImGui.ImVec2)<-ImGui.getCursorPos
             size@(ImGui.ImVec2 sizeW sizeH) <- ImGui.getWindowSize

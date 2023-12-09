@@ -13,6 +13,7 @@ module HiveGame where
 
 
 import Control.Monad
+import Control.Arrow
 
 import Data.Map.Strict as Map
 import Data.List as List
@@ -115,18 +116,27 @@ newGame = do
     return HiveGame{..}
 
 
+-- BoardView (Player,PlayerType,Maybe VMove) (Map BoardPos ([Stone],Maybe VMove))
+resetVMove :: BoardView -> BoardView
+resetVMove bv@(BoardView (p,pt,Nothing) m) = bv
+resetVMove (BoardView (p,pt,Just (VMove stone bp _)) m) = BoardView (p,pt,Nothing) m'
+    where
+        m' = Map.adjust (\(ss,mvmove)->(stone:ss,mvmove)) bp m
+
+
 dragStone :: BoardPos -> HiveGame -> IO ()
 dragStone bp HiveGame{..} = do
-    atomicModifyIORef' hivegame_boardview $ \bv@(BoardView (p,pt,_) m) -> (,()) $
+    atomicModifyIORef' hivegame_boardview $ (. resetVMove) $ \bv@(BoardView (p,pt,_) m) -> (,()) $
         case Map.lookup bp m of
             Nothing -> bv
-            Just (_ :: [Stone],mv) -> BoardView (p,pt,mv) m
+            Just (_ :: [Stone],mv) -> BoardView (p,pt,mv) $ Map.adjust (first List.tail) bp m
 
 dropStone :: BoardPos -> HiveGame -> IO ()
 dropStone bp_to hivegame@(HiveGame{..}) = do
     bv@(BoardView (p,pt,mv) m) <- readIORef hivegame_boardview
-    writeIORef hivegame_boardview (BoardView (p,pt,Nothing) m)
+
     case mv of
+
         Just (VMove stone bp_from bps) | bp_to `List.elem` bps -> do
             let move = Move stone (Just bp_from) bp_to
             board <- atomicModifyIORef' hivegame_board (\b->(applyMove move b,b))
@@ -135,8 +145,10 @@ dropStone bp_to hivegame@(HiveGame{..}) = do
             case bv' of
                 BoardView (_,AI,_) _ -> triggerAI hivegame
                 _ -> return ()
-        _ -> return ()
-    return ()
+
+        _ -> do
+            writeIORef hivegame_boardview $ resetVMove bv
+
 
 
 applyMove :: Move -> Board -> Board
