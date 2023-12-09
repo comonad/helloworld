@@ -107,11 +107,11 @@ dr (Stone player insect) = f x
 
 dr' :: [Stone] -> Drawing PixelRGBA8 ()
 dr' [] = mempty
-dr' (fmap dr->(s:ss)) = mconcat $ s : [ R.withTransformation (R.translate (R.V2 50 y) <> R.scale 0.17 0.17) s
+dr' (fmap dr->(s:ss)) = mconcat $ s : [ R.withTransformation (R.translate (R.V2 50 y) <> R.scale 0.17 0.17) (s<>targetMarking)
                                       | s<-ss | y<-[60,30,0,-30,-60]]
 
 edgeColor = PixelRGBA8 0x7f 0x7f 0x7f 0xff
-markingColor = PixelRGBA8 0xcf 0xcf 0x3f 0xff
+markingColor = PixelRGBA8 0x2f 0x2f 0xcf 0xff
 stoneDrawing :: PixelRGBA8 -> PixelRGBA8 -> Drawing PixelRGBA8 () -> Drawing PixelRGBA8 ()
 stoneDrawing stoneColor textColor item = id
         $   (R.withTexture (R.uniformTexture stoneColor)
@@ -128,7 +128,7 @@ stoneDrawing stoneColor textColor item = id
 
 targetMarking :: Drawing PixelRGBA8 ()
 targetMarking = (R.withTexture (R.uniformTexture markingColor)
-            $ R.stroke 2 R.JoinRound (R.CapRound, R.CapRound)
+            $ R.stroke 5 R.JoinRound (R.CapRound, R.CapRound)
             $ R.lineFromPath $ zipWith R.V2 [-50,50,99,50,-50,-99,-50] [-96,-96,0,96,96,0,-96]
             )
 

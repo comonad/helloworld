@@ -16,10 +16,12 @@ import Control.Monad
 import Control.Arrow
 
 import Data.Map.Strict as Map
+import Data.Set as Set
 import Data.List as List
 import Data.IORef
 import Data.Monoid
 import Data.Semigroup
+import Data.Foldable as Foldable
 
 import GHC.Generics
 import "universe-base" Data.Universe.Class as Universe
@@ -69,6 +71,7 @@ minmaxBoardPos bps = (Min minx,Max maxx,Min miny,Max maxy)
 
 
 -- white is up, black is down, unless white is human and black is AI
+-- white begins
 initBoardView :: Map Player PlayerType -> Board -> BoardView
 initBoardView m board@Board{..} = BoardView (board_playing,currentPlayerType,Nothing) view_field
     where
@@ -77,9 +80,11 @@ initBoardView m board@Board{..} = BoardView (board_playing,currentPlayerType,Not
         (Min minx,Max maxx,Min miny,Max maxy) = minmaxBoardPos $ BoardPos (-insectcount) 0 : BoardPos insectcount 0 : Map.keys board_field
         view_field :: Map BoardPos ([Stone],Maybe VMove)
         view_field = Map.fromList $ home <> field
+        blackIsUp :: Bool
+        blackIsUp = m == Map.fromList[(White,Human),(Black,AI)]
         home :: [(BoardPos, ([Stone],Maybe VMove))]
         home = do
-            let players = if m == Map.fromList[(White,Human),(Black,AI)]
+            let players = if blackIsUp
                             then [Black, White]
                             else [White, Black]
             (player,y,xs) <- List.zip3 players [miny - 5,maxy + 5] [[maxx,maxx-2 ..],[minx,minx+2 ..]]
@@ -88,7 +93,7 @@ initBoardView m board@Board{..} = BoardView (board_playing,currentPlayerType,Not
             let n = board_home Map.! stone
             guard $ n > 0
             let bp = BoardPos x y
-            let moveTo = [ bp' |  Move s Nothing bp' <- possibleMoves board, stone==s ]
+            let moveTo = [ bp' |  Move s Nothing bp' <- possibleMoves blackIsUp board, stone==s ]
             let vmove = do
                     guard (currentPlayerType == Human)
                     guard (not $ List.null moveTo)
@@ -97,20 +102,22 @@ initBoardView m board@Board{..} = BoardView (board_playing,currentPlayerType,Not
         field :: [(BoardPos, ([Stone],Maybe VMove))]
         field = do
             (bp,stones@(stone:_)) <- Map.toList board_field
-            let moveTo = [ bp' |  Move s (Just x) bp' <-possibleMoves board, x==bp, (s==stone) || error "BUG: impossible move!"]
+            let moveTo = [ bp' |  Move s (Just x) bp' <-possibleMoves blackIsUp board, x==bp, (s==stone) || error "BUG: impossible move!"]
             let vmove = do
                     guard (currentPlayerType == Human)
                     guard (not $ List.null moveTo)
                     Just (VMove stone bp moveTo)
             [(bp, (stones, vmove))]
 
+starts2 :: Map Stone Int
+starts2 = Map.fromList [(Stone player insect,i)| player<-universe, (insect,i)<- starts1]
+    where
+    starts1 = List.zip [Ant, Bug, Cricket, Bee, Spider] [3,2,3,1,2::Int]
 
 newGame :: IO HiveGame
 newGame = do
-    let starts1 = List.zip [Ant, Bug, Cricket, Bee, Spider] [3,2,2,1,2::Int]
-        starts2 = [(Stone player insect,i)| player<-universe, (insect,i)<- starts1]
-        hivegame_playertypes = Map.fromList [(White,Human),(Black,Human)]
-        board = Board White (Map.fromList starts2) Map.empty
+    let hivegame_playertypes = Map.fromList [(White,Human),(Black,Human)]
+        board = Board White starts2 Map.empty
     hivegame_boardview <- newIORef $ initBoardView hivegame_playertypes board
     hivegame_board <- newIORef board
     return HiveGame{..}
@@ -188,9 +195,77 @@ Board
 
 ---------- ↓↓↓ TODO ↓↓↓ ----------
 
-possibleMoves :: Board -> [Move]
-possibleMoves _ = []
+data Direction = North | NorthEast | SouthEast | South | SouthWest | NorthWest
+    deriving (Eq,Ord,Enum,Bounded,Show,Generic)
+instance Universe Direction
+instance Finite Direction
 
+data Neighbours a = Neighbours a a a a a a
+    deriving (Eq,Ord,Show,Functor,Foldable)
+
+inDirection :: Neighbours a -> Direction -> a
+inDirection (Neighbours x _ _ _ _ _) North = x
+inDirection (Neighbours _ x _ _ _ _) NorthEast = x
+inDirection (Neighbours _ _ x _ _ _) SouthEast = x
+inDirection (Neighbours _ _ _ x _ _) South = x
+inDirection (Neighbours _ _ _ _ x _) SouthWest = x
+inDirection (Neighbours _ _ _ _ _ x) NorthWest = x
+
+neighbour :: BoardPos -> Direction -> BoardPos
+neighbour bp dir = (neighbours bp) `inDirection` dir
+neighbours :: BoardPos -> Neighbours BoardPos
+neighbours (BoardPos x y) = Neighbours (BoardPos (x  ) (y-2))
+                                       (BoardPos (x+1) (y-1))
+                                       (BoardPos (x+1) (y+1))
+                                       (BoardPos (x  ) (y+2))
+                                       (BoardPos (x-1) (y+1))
+                                       (BoardPos (x-1) (y-1))
+
+reachableAnt :: Map BoardPos a -> BoardPos -> [BoardPos]
+reachableAnt field = undefined -- TODO
+
+reachableOutside :: Player -> Map BoardPos [Stone] -> [BoardPos]
+reachableOutside player field = undefined
+    where
+        bp0 :: BoardPos
+        bp0 = case List.foldl1' (<>) [(Max (y,bp))|bp@(BoardPos x y)<-Map.keys field] of
+                Max (_,BoardPos x y) -> BoardPos x (y+2)
+        outsides :: [BoardPos]
+        outsides = bp0:reachableAnt field bp0
+
+        enemyFields :: Set BoardPos
+        enemyFields = Map.keysSet $ Map.filter (\(Stone p _:_) -> p/=player) field
+        isValid :: BoardPos -> Bool
+        isValid bp = all (\e->Set.notMember e enemyFields) (neighbours bp)
+
+
+-- | blackIsUp :: Bool
+possibleMoves :: Bool -> Board -> [Move]
+possibleMoves blackIsUp Board{board_playing=player,..} = strategy
+    where
+
+        target_from_home :: [BoardPos]
+        target_from_home = case Map.toList board_field of
+                            [] -> [BoardPos 0 0]
+                            [_] -> [BoardPos 0 (y*u) | let y = if player==Black then 2 else -2, let u = if blackIsUp then -1 else 1]
+                            _ -> reachableOutside player board_field
+        strategy = case (isQueenOut,stonesOut) of
+                    (True,_) -> undefined -- TODO no restrictions
+                    (False,3) -> target_from_home >>= only_queen_out
+                    (False,_) -> target_from_home >>= only_from_home
+        only_queen_out :: BoardPos -> [Move]
+        only_queen_out bp = [Move (Stone player Bee) Nothing bp]
+        only_from_home :: BoardPos -> [Move]
+        only_from_home bp = [ Move stone Nothing bp | (stone,n) <- Map.toList playerHome, n>0 ]
+
+        isQueenOut :: Bool
+        isQueenOut = (board_home Map.! Stone player Bee) == 0
+        playerFilter :: Map Stone Int -> Map Stone Int
+        playerFilter = Map.filterWithKey (\(Stone p _) _ -> p==player)
+        playerHome :: Map Stone Int
+        playerHome = playerFilter board_home
+        stonesOut :: Int
+        stonesOut = List.sum $ Map.elems $ Map.unionWith (-) (playerFilter starts2) playerHome
 
 
 
