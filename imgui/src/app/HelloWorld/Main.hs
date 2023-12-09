@@ -42,6 +42,7 @@ import qualified Data.StateVar as StateVar
 -- TODO: game Orbito
 -- TODO: game Hive
 import Hive
+import qualified "Rasterific" Graphics.Rasterific.Linear as R
 
 main :: IO ()
 main = do
@@ -132,20 +133,30 @@ mainLoop window ioref_model = unlessQuit $ \mouseevts -> do
     ImGui.newFrame
 
     ImGui.withWindowOpen "image" do
+        (windowpos::ImGui.ImVec2)<-ImGui.getWindowPos
         ImGui.withChildOpen "image renderer" (ImGui.ImVec2 0 0) False (ImGui.ImGuiWindowFlags_NoBackground .|. ImGui.ImGuiWindowFlags_NoTitleBar .|. ImGui.ImGuiWindowFlags_NoScrollbar) $ do
+            (childwindowpos::ImGui.ImVec2)<-ImGui.getWindowPos
+            (contentpos::ImGui.ImVec2)<-ImGui.getCursorPos
+            size@(ImGui.ImVec2 sizeW sizeH) <- ImGui.getWindowSize
+
             model <- readIORef ioref_model
-            case tex1 model of
-                Nothing -> do
-                    --tex <- Canvas.toTextureI (img1 (256,256))
-                    tex <- Canvas.toTexture (Hive.hiveImage)
-                    atomicModifyIORef ioref_model \m -> (,()) $ m{tex1=Just tex}
-                Just _ -> return ()
+            let imvecToV2 :: ImGui.ImVec2 -> SDL.V2 Float
+                imvecToV2 (ImGui.ImVec2 x y) = (SDL.V2 x y)
+                sdl2r :: SDL.V2 Float -> R.V2 Float
+                sdl2r (SDL.V2 x y) = (R.V2 x y)
+            let mpos :: SDL.V2 Float
+                mpos = case md_pos (mousedata model) of SDL.P v2 -> fmap fromIntegral v2 - imvecToV2 (childwindowpos <> contentpos <> ImGui.ImVec2 1 1)
+                rmpos :: R.V2 Float
+                rmpos = sdl2r $ mpos / (SDL.V2 (sizeW-2) (sizeH-2))
+
+            do
+                tex <- Canvas.toTexture (tex1 model) (Hive.hiveImage (round sizeW-2) (round sizeH-2) rmpos)
+                atomicModifyIORef ioref_model \m -> (,()) $ m{tex1=Just tex}
+
             model <- readIORef ioref_model
             let Just (Tex user_texture_id (fromIntegral->width) (fromIntegral->height)) = tex1 model
             let openGLtextureID = Foreign.intPtrToPtr $ fromIntegral $ user_texture_id
 
-            --let size = (ImGui.ImVec2 width height)
-            size@(ImGui.ImVec2 sizeW sizeH) <- ImGui.getWindowSize
 
             --Foreign.with size \sizePtr ->
             Foreign.with (ImGui.ImVec2 (sizeW-2) (sizeH-2)) \sizePtr ->
@@ -156,6 +167,22 @@ mainLoop window ioref_model = unlessQuit $ \mouseevts -> do
                         ImGui.image openGLtextureID sizePtr uv0Ptr uv1Ptr tintColPtr borderColPtr
                         --ImGui_RAW.imageButton openGLtextureID sizePtr uv0Ptr uv1Ptr (-1) borderColPtr tintColPtr
                         return ()
+
+            (drawlist::ImGui_DL.DrawList)<-ImGui.getWindowDrawList
+            let addRect lt rb color thickness = do
+                            let rounding = 0
+                            Foreign.with lt \ptr_lt -> Foreign.with rb \ptr_rb ->
+                                ImGui_DL.addRect drawlist ptr_lt ptr_rb color rounding ImGui_RAW.ImDrawFlags_RoundCornersNone thickness
+            let addCircleFilled center radius color = do
+                            let num_segments = 0
+                            Foreign.with center \ptr_center ->
+                                ImGui_DL.addCircleFilled drawlist ptr_center radius color num_segments
+
+            addRect (childwindowpos <> contentpos) (childwindowpos <> contentpos <> size) 0xffffffff 1
+            let mp = case md_pos (mousedata model) of SDL.P (SDL.V2 x y) -> ImGui.ImVec2 (fromIntegral x) (fromIntegral y)
+            addCircleFilled mp 16 0xffff0000
+
+
 
 
 

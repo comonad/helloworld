@@ -114,9 +114,9 @@ hiveDrawing :: Drawing PixelRGBA8 () -> Drawing PixelRGBA8 ()
 hiveDrawing = stoneDrawing (PixelRGBA8 0x7f 0x7f 0x7f 255) (PixelRGBA8 0x0 0x0 0x0 255)
 
 
-
-hiveImage :: DynamicImage
-hiveImage = ImageRGBA8 $ R.renderDrawing 200 200 (PixelRGBA8 0x7f 0x7f 0x7f 255) $ dr (Stone Black Bee)
+type MousePos = R.Point
+hiveImage :: Int -> Int -> MousePos -> DynamicImage
+hiveImage w h mp = ImageRGBA8 $ R.renderDrawing w h (PixelRGBA8 0x7f 0x7f 0x7f 255) $ dr (Stone Black Bee)
 
 
 

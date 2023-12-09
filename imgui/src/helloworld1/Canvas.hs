@@ -25,12 +25,14 @@ import Foreign
 
 data Tex = Tex GL.GLuint Int Int
 
-toTexture :: JuicyPixels.DynamicImage -> IO Tex
-toTexture di = do
+toTexture :: Maybe Tex -> JuicyPixels.DynamicImage -> IO Tex
+toTexture maybeTex di = do
 
-    t <- alloca \ptr -> do
-        GL.glGenTextures 1 ptr
-        peek ptr
+    t <- case maybeTex of
+            Just (Tex t _ _) -> return t
+            Nothing -> alloca \ptr -> do
+                            GL.glGenTextures 1 ptr
+                            peek ptr
 
     GL.glEnable GL.GL_TEXTURE_2D
     GL.glBindTexture GL.GL_TEXTURE_2D t
@@ -77,8 +79,8 @@ toTexture di = do
         ImageCMYK8  _ -> gen (convertRGB8  di) GL.GL_RGB8  GL.GL_RGB GL.GL_UNSIGNED_BYTE
         ImageCMYK16 _ -> gen (convertRGB16 di) GL.GL_RGB16 GL.GL_RGB GL.GL_UNSIGNED_SHORT
 
-toTextureI :: Typeable a => JuicyPixels.Image a -> IO Tex
-toTextureI = toTexture . toDynamicImage
+toTextureI :: Typeable a => Maybe Tex -> JuicyPixels.Image a -> IO Tex
+toTextureI maybeTex = toTexture maybeTex . toDynamicImage
 
 
 toDynamicImage :: Typeable a => JuicyPixels.Image a -> JuicyPixels.DynamicImage
