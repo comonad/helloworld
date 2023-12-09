@@ -26,6 +26,8 @@ dependencies:
   - OpenGLRaw
   - vector
   - StateVar
+  - Rasterific >= 0.7.5.4
+  - FontyFruity >= 0.5.3.5
   #- http-client >= 0.6.4.1
   #- http-types >= 0.9.1
   #- HTTP >= 4000.3.7
@@ -77,8 +79,14 @@ internal-libraries:
         source-dirs: src/helloworld1
 
 executables:
+    Freetype:
+        source-dirs: src/app/Freetype
+        main:        Main.hs
+        dependencies:
+          - freetype2
     HelloWorld:
-        source-dirs: src/app
+        source-dirs: src/app/HelloWorld
+        main:        Main.hs
         dependencies:
           - helloworld1
           #- monomer >= 1.5.1.0
@@ -93,7 +101,6 @@ executables:
           #- store >= 0.7.18
           #- th-utilities >= 0.2.5.0
 
-        main:        HelloWorld.hs
         ghc-options:
           - -fwarn-incomplete-patterns
 
