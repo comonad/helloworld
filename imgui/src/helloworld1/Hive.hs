@@ -25,31 +25,23 @@ import Graphics.Rasterific.Immediate as R
 
 import "FontyFruity" Graphics.Text.TrueType as F
 
-ant = "a"
---ant = "🐜"
+
+-- 🐜🦗🐝🐞🕷🪲🪳🦟
 --ant = "\x1F41C"
 --ant = "\xD83D\xDC1C"
 --ant = "\xf0\x9f\x90\x9c"
 
+--x<-F.loadFontFile "LiberationMono-Regular.ttf"
+--x<-F.loadFontFile "Roboto-Regular.ttf"
+--x<-F.loadFontFile "HackNerdFont-Regular.ttf"
+--x<-F.loadFontFile "NotoColorEmoji.ttf"
+
 {-# NOINLINE fontWminsects #-}
 fontWminsects :: Font
 fontWminsects = unsafePerformIO $ do
-    --x<-F.loadFontFile "LiberationMono-Regular.ttf"
-    --x<-F.loadFontFile "Roboto-Regular.ttf"
-    --x<-F.loadFontFile "HackNerdFont-Regular.ttf"
-    --x<-F.loadFontFile "NotoColorEmoji.ttf"
     x<-F.loadFontFile "fonts/Wminsects1-nXKV.ttf"
     either fail return x
 
-{-# NOINLINE fontLpinsects #-}
-fontLpinsects :: Font
-fontLpinsects = unsafePerformIO $ do
-    --x<-F.loadFontFile "LiberationMono-Regular.ttf"
-    --x<-F.loadFontFile "Roboto-Regular.ttf"
-    --x<-F.loadFontFile "HackNerdFont-Regular.ttf"
-    --x<-F.loadFontFile "NotoColorEmoji.ttf"
-    x<-F.loadFontFile "fonts/Lpinsects1-nXKV.ttf"
-    either fail return x
 
 
 
@@ -73,14 +65,37 @@ boxed drawing = do
     R.withTransformation (R.scale s s <> movetocenter) drawing
 
 
-boxedText :: RenderablePixel px => (Float,Float) -> Font -> String -> Drawing px ()
-boxedText (x,y) font text = R.withTransformation (R.translate (R.V2 x y)) $ boxed $ R.printTextAt font (PointSize 100) (V2 0 0) text
+boxedText :: RenderablePixel px => Float -> (Float,Float) -> Font -> String -> Drawing px ()
+boxedText angle (x,y) font text = R.withTransformation (R.rotate (angle*pi/180) <> R.translate (R.V2 x y)) $ boxed $ R.printTextAt font (PointSize 100) (V2 0 0) text
 
 
 -- -100,-100 to 100,100
-antDrawing :: RenderablePixel px => Drawing px ()
-antDrawing = boxedText (-5,0) fontWminsects "a"
+antDrawing,queenDrawing,spiderDrawing,cricketDrawing,bugDrawing :: RenderablePixel px => Drawing px ()
 
+antDrawing = boxedText (-27) (-7,0) fontWminsects "a"
+bugDrawing = boxedText 0 (0,0) fontWminsects "z"
+cricketDrawing = boxedText (-30) (0,0) fontWminsects "L"
+queenDrawing = boxedText 0 (-5,-20) fontWminsects "g"
+spiderDrawing = boxedText 0 (0,0) fontWminsects "P"
+
+
+
+data Player = White | Black
+data Insect = Ant | Bug | Cricket | Bee | Spider
+data Stone = Stone !Player !Insect
+
+dr :: Stone -> Drawing PixelRGBA8 ()
+dr (Stone player insect) = f x
+    where
+        f = case player of
+                White -> stoneDrawing (PixelRGBA8 0xbf 0xbf 0xbf 255) (PixelRGBA8 0x0 0x0 0x0 255)
+                Black -> stoneDrawing (PixelRGBA8 0x1f 0x1f 0x1f 255) (PixelRGBA8 0xcf 0xcf 0x7f 255)
+        x = case insect of
+                Ant -> antDrawing
+                Bug -> bugDrawing
+                Cricket -> cricketDrawing
+                Bee -> queenDrawing
+                Spider -> spiderDrawing
 
 
 
@@ -101,7 +116,7 @@ hiveDrawing = stoneDrawing (PixelRGBA8 0x7f 0x7f 0x7f 255) (PixelRGBA8 0x0 0x0 0
 
 
 hiveImage :: DynamicImage
-hiveImage = ImageRGBA8 $ R.renderDrawing 200 200 (PixelRGBA8 0 0 0 0) $ hiveDrawing antDrawing
+hiveImage = ImageRGBA8 $ R.renderDrawing 200 200 (PixelRGBA8 0x7f 0x7f 0x7f 255) $ dr (Stone Black Bee)
 
 
 
