@@ -42,6 +42,7 @@ import qualified Data.StateVar as StateVar
 -- TODO: game Orbito
 -- TODO: game Hive
 import Hive
+import qualified HiveGame
 import qualified "Rasterific" Graphics.Rasterific.Linear as R
 
 main :: IO ()
@@ -98,14 +99,15 @@ data Mousedata = Mousedata
     , md_events :: ![Mouseevent]
     }
 
-data Model = Model {tabledata :: IORef Tabledata, mousedata::Mousedata, tex1::Maybe Tex, model_font::ImGui_Font.Font}
+data Model = Model {tabledata :: IORef Tabledata, mousedata::Mousedata, tex1::Maybe Tex, model_font::ImGui_Font.Font, hivegame::HiveGame.HiveGame}
 initModel :: IO (IORef Model)
 initModel = do
     tabledata <- newIORef [("1","2","3"), ("4","5","6"), ("4","3","1")]
     let md = Mousedata (SDL.P $ SDL.V2 0 0) Set.empty []
     --(Just model_font) <- ImGui_Font.addFontFromFileTTF_ "HackNerdFont-Regular.ttf" 32
     let model_font = undefined
-    newIORef $ Model tabledata md Nothing model_font
+    hivegame <- HiveGame.newGame :: IO HiveGame.HiveGame
+    newIORef $ Model tabledata md Nothing model_font hivegame
 
 sortBySortSpec :: ImGui.TableSortingSpecs -> Tabledata -> Tabledata
 sortBySortSpec sortSpec = sortBy comp
@@ -150,7 +152,9 @@ mainLoop window ioref_model = unlessQuit $ \mouseevts -> do
                 rmpos = sdl2r $ mpos / (SDL.V2 (sizeW-2) (sizeH-2))
 
             do
-                tex <- Canvas.toTexture (tex1 model) (Hive.hiveImage (round sizeW-2) (round sizeH-2) rmpos)
+                hivegame<-hivegame<$>readIORef ioref_model
+                img <- Hive.hiveImage hivegame (round sizeW-2) (round sizeH-2) rmpos
+                tex <- Canvas.toTexture (tex1 model) img
                 atomicModifyIORef ioref_model \m -> (,()) $ m{tex1=Just tex}
 
             model <- readIORef ioref_model
@@ -242,7 +246,7 @@ mainLoop window ioref_model = unlessQuit $ \mouseevts -> do
             True  -> putStrLn "Ow!"
 
         let columncount = 3
-        (Model tabledata md _ _) <- readIORef ioref_model
+        (Model{tabledata, mousedata=md}) <- readIORef ioref_model
         let f = List.foldl1' (.|.) [ ImGui.ImGuiTableFlags_SizingStretchSame, ImGui.ImGuiTableFlags_Resizable
                                    , ImGui.ImGuiTableFlags_Reorderable
                                    , ImGui.ImGuiTableFlags_Hideable

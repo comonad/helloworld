@@ -24,7 +24,8 @@ import Graphics.Rasterific.Immediate as R
 --import Graphics.Rasterific.Command as R -- hidden
 
 import "FontyFruity" Graphics.Text.TrueType as F
-
+import HiveGame
+import Data.IORef
 
 -- 🐜🦗🐝🐞🕷🪲🪳🦟
 --ant = "\x1F41C"
@@ -80,10 +81,6 @@ spiderDrawing = boxedText 0 (0,0) fontWminsects "P"
 
 
 
-data Player = White | Black
-data Insect = Ant | Bug | Cricket | Bee | Spider
-data Stone = Stone !Player !Insect
-
 dr :: Stone -> Drawing PixelRGBA8 ()
 dr (Stone player insect) = f x
     where
@@ -115,8 +112,8 @@ hiveDrawing = stoneDrawing (PixelRGBA8 0x7f 0x7f 0x7f 255) (PixelRGBA8 0x0 0x0 0
 
 
 type MousePos = R.Point
-hiveImage :: Int -> Int -> MousePos -> DynamicImage
-hiveImage w h mp = ImageRGBA8 $ R.renderDrawing w h (PixelRGBA8 0x7f 0x7f 0x7f 255) $ dr (Stone Black Bee)
+hiveImage :: HiveGame -> Int -> Int -> MousePos -> IO DynamicImage
+hiveImage hivegame w h mp = return $ ImageRGBA8 $ R.renderDrawing w h (PixelRGBA8 0x7f 0x7f 0x7f 255) $ dr (Stone Black Bee)
 
 
 
