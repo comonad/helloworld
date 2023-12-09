@@ -1,5 +1,12 @@
-{-# language PackageImports #-}
 {-# language BlockArguments #-}
+{-# language LambdaCase #-}
+{-# language OverloadedStrings #-}
+{-# language NamedFieldPuns #-}
+{-# language RecordWildCards #-}
+{-# language PackageImports #-}
+{-# language ViewPatterns #-}
+{-# language ParallelListComp #-}
+
 
 module Hive
 
@@ -10,8 +17,10 @@ import "JuicyPixels" Codec.Picture.Types as JuicyPixels
 
 import Data.Vector.Storable (unsafeWith)
 import Foreign.Storable (Storable)
+import Data.Maybe
 import Data.Typeable
 import Data.List as List
+import Data.Map.Strict as Map
 import Control.Monad
 import Control.Applicative
 import System.IO.Unsafe (unsafePerformIO)
@@ -26,6 +35,8 @@ import Graphics.Rasterific.Immediate as R
 import "FontyFruity" Graphics.Text.TrueType as F
 import HiveGame
 import Data.IORef
+import Data.Monoid
+import Data.Semigroup
 
 -- 🐜🦗🐝🐞🕷🪲🪳🦟
 --ant = "\x1F41C"
@@ -74,7 +85,7 @@ boxedText angle (x,y) font text = R.withTransformation (R.rotate (angle*pi/180) 
 antDrawing,queenDrawing,spiderDrawing,cricketDrawing,bugDrawing :: RenderablePixel px => Drawing px ()
 
 antDrawing = boxedText (-27) (-7,0) fontWminsects "a"
-bugDrawing = boxedText 0 (0,0) fontWminsects "z"
+bugDrawing = boxedText 90 (0,0) fontWminsects "z"
 cricketDrawing = boxedText (-30) (0,0) fontWminsects "L"
 queenDrawing = boxedText 0 (-5,-20) fontWminsects "g"
 spiderDrawing = boxedText 0 (0,0) fontWminsects "P"
@@ -94,16 +105,30 @@ dr (Stone player insect) = f x
                 Bee -> queenDrawing
                 Spider -> spiderDrawing
 
+dr' :: [Stone] -> Drawing PixelRGBA8 ()
+dr' (fmap dr->(s:ss)) = mconcat $ s : [ R.withTransformation (R.translate (R.V2 50 y) <> R.scale 0.17 0.17) s
+                                      | s<-ss | y<-[60,30,0,-30,-60]]
 
-
+edgeColor = PixelRGBA8 0x7f 0x7f 0x7f 0xff
+markingColor = PixelRGBA8 0xcf 0xcf 0x3f 0xff
 stoneDrawing :: PixelRGBA8 -> PixelRGBA8 -> Drawing PixelRGBA8 () -> Drawing PixelRGBA8 ()
-stoneDrawing stoneColor textColor item = R.withTransformation (R.translate (R.V2 100 100))
-        $ (R.withTexture (R.uniformTexture stoneColor)
+stoneDrawing stoneColor textColor item = id
+        $   (R.withTexture (R.uniformTexture stoneColor)
             $ R.fill
+            $ R.lineFromPath $ zipWith R.V2 [-50,50,99,50,-50,-99,-50] [-96,-96,0,96,96,0,-96]
+            )
+        <>  (R.withTexture (R.uniformTexture edgeColor)
+            $ R.stroke 2 R.JoinRound (R.CapRound, R.CapRound)
             $ R.lineFromPath $ zipWith R.V2 [-50,50,99,50,-50,-99,-50] [-96,-96,0,96,96,0,-96]
             )
         <>  (R.withTexture (R.uniformTexture textColor)
             $ R.withTransformation (R.scale 0.7 0.7) item
+            )
+
+targetMarking :: Drawing PixelRGBA8 ()
+targetMarking = (R.withTexture (R.uniformTexture markingColor)
+            $ R.stroke 2 R.JoinRound (R.CapRound, R.CapRound)
+            $ R.lineFromPath $ zipWith R.V2 [-50,50,99,50,-50,-99,-50] [-96,-96,0,96,96,0,-96]
             )
 
 -- grey,black
@@ -113,7 +138,43 @@ hiveDrawing = stoneDrawing (PixelRGBA8 0x7f 0x7f 0x7f 255) (PixelRGBA8 0x0 0x0 0
 
 type MousePos = R.Point
 hiveImage :: HiveGame -> Int -> Int -> MousePos -> IO DynamicImage
-hiveImage hivegame w h mp = return $ ImageRGBA8 $ R.renderDrawing w h (PixelRGBA8 0x7f 0x7f 0x7f 255) $ dr (Stone Black Bee)
+hiveImage hivegame w h mp = do
+    (BoardView (_::Player,_::PlayerType,maybeVMove::Maybe VMove) (m::Map BoardPos ([Stone],Maybe VMove))) <- readIORef (hivegame_boardview hivegame)
+    let isDragging = isJust maybeVMove
+        targets = case maybeVMove of
+                    Nothing -> [ bp | (bp,(_,Just _ :: Maybe VMove)) <- Map.toList m]
+                    Just (VMove _ _ bps) -> bps
+    let stoneX = 150
+        stoneY = 100
+        drawing :: Drawing PixelRGBA8 ()
+        drawing = mconcat $
+                    [ R.withTransformation (R.translate (R.V2 (fromIntegral $ x*stoneX) (fromIntegral $ y*stoneY))) $ dr' stones
+                    | (BoardPos x y,(stones,_ :: Maybe VMove)) <- Map.toList m
+                    ] <>
+                    [ R.withTransformation (R.translate (R.V2 (fromIntegral $ x*stoneX) (fromIntegral $ y*stoneY))) $ targetMarking
+                    | (BoardPos x y) <- targets
+                    ]
+        (Min minx,Max maxx,Min miny,Max maxy) = minmaxBoardPos $ Map.keys m
+        s :: Float
+        s = (fromIntegral w / fromIntegral (stoneX * (maxx-minx) + 200)) `min` (fromIntegral h / fromIntegral (stoneY * (maxy-miny) + 200))
+        trans =  R.scale s s <>
+                 R.translate (R.V2 (fromIntegral $ 100-minx*stoneX) (fromIntegral $ 100-miny*stoneY))
+
+    return $ ImageRGBA8 $ R.renderDrawing w h (PixelRGBA8 0x7f 0x7f 0x7f 255)
+                        $ R.withTransformation trans
+                        $ drawing
+
+
+    --return $ ImageRGBA8 $ R.renderDrawing w h (PixelRGBA8 0x7f 0x7f 0x7f 255)
+    --                    $ R.withTransformation (R.translate (R.V2 100 100))
+    --                    $ dr (Stone Black Bee)
+
+
+
+
+
+
+
 
 
 

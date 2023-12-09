@@ -6,6 +6,7 @@
 {-# language PackageImports #-}
 {-# language ViewPatterns #-}
 {-# language DeriveGeneric #-}
+{-# language ParallelListComp #-}
 
 
 module HiveGame where
@@ -60,12 +61,19 @@ data VMove = VMove !Stone !BoardPos ![BoardPos]
 data BoardView = BoardView (Player,PlayerType,Maybe VMove) (Map BoardPos ([Stone],Maybe VMove))
 
 
+minmaxBoardPos :: [BoardPos] -> (Min Int,Max Int,Min Int,Max Int)
+minmaxBoardPos bps = (Min minx,Max maxx,Min miny,Max maxy)
+    where
+    (Min minx,Max maxx,Min miny,Max maxy) = mconcat [ (Min x,Max x,Min y,Max y) | BoardPos x y <- BoardPos 0 0 : bps ]
+
+
 -- white is up, black is down, unless white is human and black is AI
 initBoardView :: Map Player PlayerType -> Board -> BoardView
 initBoardView m board@Board{..} = BoardView (board_playing,currentPlayerType,Nothing) view_field
     where
         currentPlayerType = m Map.! board_playing
-        (Min minx,Max maxx,Min miny,Max maxy) = mconcat [ (Min x,Max x,Min y,Max y) | BoardPos x y <- BoardPos (-5) 0 : BoardPos 5 0 : Map.keys board_field ]
+        insectcount = List.length(universe::[Insect])
+        (Min minx,Max maxx,Min miny,Max maxy) = minmaxBoardPos $ BoardPos (-insectcount) 0 : BoardPos insectcount 0 : Map.keys board_field
         view_field :: Map BoardPos ([Stone],Maybe VMove)
         view_field = Map.fromList $ home <> field
         home :: [(BoardPos, ([Stone],Maybe VMove))]
@@ -73,7 +81,7 @@ initBoardView m board@Board{..} = BoardView (board_playing,currentPlayerType,Not
             let players = if m == Map.fromList[(White,Human),(Black,AI)]
                             then [Black, White]
                             else [White, Black]
-            (player,y,xs) <- List.zip3 players [miny - 3,maxy + 3] [[maxx,maxx-2 .. maxx-8],[minx,minx+2 .. minx+8]]
+            (player,y,xs) <- List.zip3 players [miny - 5,maxy + 5] [[maxx,maxx-2 ..],[minx,minx+2 ..]]
             (insect,x) <- List.zip universe xs
             let stone = Stone player insect
             let n = board_home Map.! stone
