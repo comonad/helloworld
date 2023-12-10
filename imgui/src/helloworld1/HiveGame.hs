@@ -22,6 +22,8 @@ import Data.IORef
 import Data.Monoid
 import Data.Semigroup
 import Data.Foldable as Foldable
+import "mtl" Control.Monad.State.Strict as State
+import qualified GHC.Base (liftA2)
 
 import GHC.Generics
 import "universe-base" Data.Universe.Class as Universe
@@ -203,15 +205,29 @@ data Direction = North | NorthEast | SouthEast | South | SouthWest | NorthWest
 instance Universe Direction
 instance Finite Direction
 
+rotateCWn :: Int -> Direction -> Direction
+rotateCWn n dir = toEnum $ (fromEnum dir + n) `mod` 6
+
 rotateCW :: Direction -> Direction
-rotateCW NorthWest = North
-rotateCW d = succ d
+rotateCW = rotateCWn 1
 rotateCCW :: Direction -> Direction
-rotateCCW North = NorthWest
-rotateCCW d = pred d
+rotateCCW = rotateCWn 5
 
 data Neighbours a = Neighbours a a a a a a
     deriving (Eq,Ord,Show,Functor,Foldable)
+
+neighboursDirection :: Neighbours Direction
+neighboursDirection = Neighbours North NorthEast SouthEast South SouthWest NorthWest
+
+instance Applicative Neighbours where
+  pure a = Neighbours a a a a a a
+  (<*>) (Neighbours aa bb cc dd ee ff) (Neighbours a b c d e f) = Neighbours (aa a)(bb b)(cc c)(dd d)(ee e)(ff f)
+  liftA2 x (Neighbours aa bb cc dd ee ff) (Neighbours a b c d e f) = Neighbours (x aa a)(x bb b)(x cc c)(x dd d)(x ee e)(x ff f)
+  (*>) _ fb = fb
+  (<*) fa _ = fa
+
+mapWithDir :: (Direction -> a -> b) -> Neighbours a -> Neighbours b
+mapWithDir x = GHC.Base.liftA2 x neighboursDirection
 
 inDirection :: Neighbours a -> Direction -> a
 inDirection (Neighbours x _ _ _ _ _) North = x
@@ -266,6 +282,74 @@ reachableOutside player field = List.filter isValid outsides
         isValid bp = all (\e->Set.notMember e enemyFields) (neighbours bp)
 
 
+
+
+bridges :: Map BoardPos a -> Set BoardPos
+bridges field = Set.fromList found_bridges
+    where
+        f :: BoardPos -> Maybe BoardPos
+        f bp = const bp <$> Map.lookup bp field
+        field_neighbours :: Map BoardPos (Neighbours (Maybe BoardPos))
+        field_neighbours = Map.mapWithKey (\bp _ -> f <$> neighbours bp) field
+
+        fi :: BoardPos -> (Neighbours (Maybe BoardPos)) -> (Neighbours (Maybe (BoardPos,Direction)))
+        fi beach ns = flip mapWithDir ns \dir -> \case
+                                                    Just _ -> Nothing
+                                                    Nothing -> do
+                                                        let d = rotateCW dir
+                                                        case ns `inDirection` d of
+                                                            Nothing -> Just (beach,d)
+                                                            Just n -> Just (n,rotateCCW dir)
+        field_island_cw :: Map BoardPos (Neighbours (Maybe (BoardPos,Direction)))
+        field_island_cw = Map.mapWithKey fi field_neighbours
+        field_island_cw' :: Map (BoardPos,Direction) (BoardPos,Direction)
+        field_island_cw' = Map.fromList [ ((bp,dir),x)
+                                        | (bp,ns) <- Map.toList field_island_cw
+                                        , (dir,Just x) <- Foldable.toList $ mapWithDir (,) ns
+                                        ]
+
+
+
+        extractNext :: Ord a => a -> State (Map a a) (Maybe a)
+        extractNext k = State.state $ Map.alterF (,Nothing) k
+
+        extractRing_ :: Ord a => [a] -> a -> State (Map a a) [a]
+        extractRing_ !rs !k = do
+            ma <- extractNext k
+            case ma of
+                Nothing -> return (k:rs)
+                Just !a -> extractRing_ (k:rs) a
+
+        extractRing :: Ord a => State (Map a a) [a]
+        extractRing = do
+            (fmap fst->mk) <- State.gets Map.lookupMin
+            maybe (return []) (extractRing_ []) mk
+
+        extractRings :: forall a. Ord a => Map a a -> [[a]]
+        extractRings = List.unfoldr f
+            where
+                f :: Map a a -> Maybe ([a], Map a a)
+                f m = case State.runState extractRing m of
+                        ([],_) -> Nothing
+                        x -> Just x
+
+        rings :: [[(BoardPos,Direction)]]
+        rings = extractRings field_island_cw'
+        rings' :: [[BoardPos]]
+        rings' = [ if List.head r' == List.last r' then List.tail r' else r' | r<-rings , let r' = fmap List.head $ List.group $ fst <$> r ]
+        found_bridges :: [BoardPos]
+        found_bridges = do
+            r<-rings'
+            g<-List.group $ List.sort r
+            List.take 1 $ List.tail g
+
+
+movesOnField :: Player -> Map BoardPos [Stone] -> [Move]
+movesOnField player field = do
+    -- no boardpos that are bridges
+    -- TODO: use     bridges :: Map BoardPos a -> Set BoardPos
+    undefined -- TODO
+
 -- | blackIsUp :: Bool
 possibleMoves :: Bool -> Board -> [Move]
 possibleMoves blackIsUp Board{board_playing=player,..} = strategy
@@ -277,7 +361,7 @@ possibleMoves blackIsUp Board{board_playing=player,..} = strategy
                             [_] -> [BoardPos 0 (y*u) | let y = if player==Black then 2 else -2, let u = if blackIsUp then -1 else 1]
                             _ -> reachableOutside player board_field
         strategy = case (isQueenOut,stonesOut) of
-                    (True,_) -> undefined -- TODO no restrictions
+                    (True,_) -> (target_from_home >>= only_from_home) <> movesOnField player board_field
                     (False,3) -> target_from_home >>= only_queen_out
                     (False,_) -> target_from_home >>= only_from_home
         only_queen_out :: BoardPos -> [Move]
