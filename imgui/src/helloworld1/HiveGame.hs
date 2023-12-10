@@ -61,6 +61,7 @@ data Board = Board
     { board_playing :: Player
     , board_home :: Map Stone Int
     , board_field :: Map BoardPos [Stone]
+    , board_gameEnded :: Maybe (Either Draw Player)
     }
 
 data VMove = VMove !Stone !BoardPos ![BoardPos]
@@ -73,21 +74,23 @@ minmaxBoardPos bps = (Min minx,Max maxx,Min miny,Max maxy)
     (Min minx,Max maxx,Min miny,Max maxy) = mconcat [ (Min x,Max x,Min y,Max y) | BoardPos x y <- BoardPos 0 0 : bps ]
 
 
+blackIsUp :: Map Player PlayerType -> Bool
+blackIsUp playertypes = playertypes == Map.fromList[(White,Human),(Black,AI)]
+
+
 -- white is up, black is down, unless white is human and black is AI
 -- white begins
-initBoardView :: Map Player PlayerType -> Board -> BoardView
-initBoardView m board@Board{..} = BoardView (board_playing,currentPlayerType,Nothing) view_field
+initBoardView :: [Move] -> Map Player PlayerType -> Board -> BoardView
+initBoardView possMoves playertypes board@Board{..} = BoardView (board_playing,currentPlayerType,Nothing) view_field
     where
-        currentPlayerType = m Map.! board_playing
+        currentPlayerType = playertypes Map.! board_playing
         insectcount = List.length(universe::[Insect])
         (Min (pred->minx),Max (succ->maxx),Min miny,Max maxy) = minmaxBoardPos $ BoardPos (1-insectcount) 0 : BoardPos (insectcount-1) 0 : Map.keys board_field
         view_field :: Map BoardPos ([Stone],Maybe VMove)
         view_field = Map.fromList $ home <> field
-        blackIsUp :: Bool
-        blackIsUp = m == Map.fromList[(White,Human),(Black,AI)]
         home :: [(BoardPos, ([Stone],Maybe VMove))]
         home = do
-            let players = if blackIsUp
+            let players = if blackIsUp playertypes
                             then [Black, White]
                             else [White, Black]
             (player,y,xs) <- List.zip3 players [miny - 5,maxy + 5] [[maxx,maxx-2 ..],[minx,minx+2 ..]]
@@ -96,7 +99,7 @@ initBoardView m board@Board{..} = BoardView (board_playing,currentPlayerType,Not
             let n = board_home Map.! stone
             guard $ n > 0
             let bp = BoardPos x y
-            let moveTo = [ bp' |  Move s Nothing bp' <- possibleMoves blackIsUp board, stone==s ]
+            let moveTo = [ bp' |  Move s Nothing bp' <- possMoves, stone==s ]
             let vmove = do
                     guard (currentPlayerType == Human)
                     guard (not $ List.null moveTo)
@@ -105,7 +108,7 @@ initBoardView m board@Board{..} = BoardView (board_playing,currentPlayerType,Not
         field :: [(BoardPos, ([Stone],Maybe VMove))]
         field = do
             (bp,stones@(stone:_)) <- Map.toList board_field
-            let moveTo = [ bp' |  Move s (Just x) bp' <-possibleMoves blackIsUp board, x==bp, (s==stone) || error "BUG: impossible move!"]
+            let moveTo = [ bp' |  Move s (Just x) bp' <- possMoves, x==bp, (s==stone) || error "BUG: impossible move!"]
             let vmove = do
                     guard (currentPlayerType == Human)
                     guard (not $ List.null moveTo)
@@ -120,8 +123,9 @@ starts2 = Map.fromList [(Stone player insect,i)| player<-universe, (insect,i)<- 
 newGame :: IO HiveGame
 newGame = do
     let hivegame_playertypes = Map.fromList [(White,Human),(Black,Human)]
-        board = Board White starts2 Map.empty
-    hivegame_boardview <- newIORef $ initBoardView hivegame_playertypes board
+        board = Board White starts2 Map.empty Nothing
+        possMoves = possibleMoves hivegame_playertypes board :: [Move]
+    hivegame_boardview <- newIORef $ initBoardView possMoves hivegame_playertypes board
     hivegame_board <- newIORef board
     return HiveGame{..}
 
@@ -152,8 +156,18 @@ dropStone bp_to hivegame@(HiveGame{..}) = do
 
         Just (VMove stone bp_from bps) | bp_to `List.elem` bps -> do
             let move = Move stone (Just bp_from) bp_to
-            board <- atomicModifyIORef' hivegame_board $ (\b->(b,b)) . applyMove move
-            let bv' = initBoardView hivegame_playertypes board
+            (board,possMoves) <- do
+                board <- atomicModifyIORef' hivegame_board $ (\b->(b,b)) . applyMove move
+                let possMoves = possibleMoves hivegame_playertypes board :: [Move]
+                if List.null possMoves
+                then do
+                    board <- atomicModifyIORef' hivegame_board $ (\b->(b,b)) . endTurn
+                    let possMoves = possibleMoves hivegame_playertypes board :: [Move]
+                    return (board,possMoves)
+                else do
+                    return (board,possMoves)
+
+            let bv' = initBoardView possMoves hivegame_playertypes board
             writeIORef hivegame_boardview bv'
             case bv' of
                 BoardView (_,AI,_) _ -> triggerAI hivegame
@@ -180,7 +194,7 @@ putOnBoard :: Stone -> BoardPos -> Board -> Board
 putOnBoard stone bp_to board@(Board{..})
     = board{board_field=Map.alter (Just . maybe [stone] (stone:)) bp_to board_field}
 endTurn :: Board -> Board
-endTurn board@(Board{..}) = board{board_playing=opponent board_playing}
+endTurn board@(Board{..}) = board{board_playing=opponent board_playing, board_gameEnded = gameEnded board_field}
 
 opponent :: Player -> Player
 opponent White = Black
@@ -451,15 +465,18 @@ movesOnField player field = do
     return $ Move stone (Just bp_from) bp_to
 
 
--- | blackIsUp :: Bool
-possibleMoves :: Bool -> Board -> [Move]
-possibleMoves blackIsUp Board{board_playing=player,..} = strategy
+
+
+
+possibleMoves :: Map Player PlayerType -> Board -> [Move]
+possibleMoves playertypes Board{board_playing=player,..} = if isEnd then [] else strategy
     where
+        isEnd = isJust $ board_gameEnded
 
         target_from_home :: [BoardPos]
         target_from_home = case Map.toList board_field of
                             [] -> [BoardPos 0 0]
-                            [_] -> [BoardPos 0 (y*u) | let y = if player==Black then 2 else -2, let u = if blackIsUp then -1 else 1]
+                            [_] -> [BoardPos 0 (y*u) | let y = if player==Black then 2 else -2, let u = if blackIsUp playertypes then -1 else 1]
                             _ -> reachableOutside player board_field
         strategy = case (isQueenOut,stonesOut) of
                     (True,_) -> (target_from_home >>= only_from_home) <> movesOnField player board_field
@@ -480,7 +497,21 @@ possibleMoves blackIsUp Board{board_playing=player,..} = strategy
         stonesOut = List.sum $ Map.elems $ Map.unionWith (-) (playerFilter starts2) playerHome
 
 
-
+data Draw = Draw deriving (Eq,Ord,Enum,Bounded,Show,Generic)
+gameEnded :: Map BoardPos [Stone] -> Maybe (Either Draw Player)
+gameEnded m = case loosers of
+                    [] -> Nothing
+                    [p] -> Just $ Right p
+                    [_,_] -> Just $ Left Draw
+    where
+        hasStone :: BoardPos -> Bool
+        hasStone x = Map.member x m
+        loosers :: [Player]
+        loosers = [ player
+                  | (bp,stones) <- Map.toList m
+                  , (Stone player Bee) <- stones
+                  , all hasStone $ neighbours bp
+                  ]
 
 
 
