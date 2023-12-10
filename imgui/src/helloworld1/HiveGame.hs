@@ -20,6 +20,7 @@ import Data.Set as Set
 import Data.List as List
 import Data.IORef
 import Data.Monoid
+import Data.Maybe
 import Data.Semigroup
 import Data.Foldable as Foldable
 import "mtl" Control.Monad.State.Strict as State
@@ -171,7 +172,7 @@ applyMove (Move stone maybe_bp_from bp_to) board
 takeFromBoard :: Stone -> (Maybe BoardPos) -> Board -> Board
 takeFromBoard stone (Just bp_from) board@(Board{..})
     | Map.member bp_from board_field
-    = board{board_field=Map.update (\case { (_:s) -> Just s ; _ -> Nothing}) bp_from board_field}
+    = board{board_field=Map.update (\case { [_] -> Nothing ; (_:s)->Just s }) bp_from board_field}
 takeFromBoard stone _ board@(Board{..})
     = board{board_home=Map.adjust pred stone board_home}
 
@@ -226,6 +227,11 @@ instance Applicative Neighbours where
   (*>) _ fb = fb
   (<*) fa _ = fa
 
+zipNeighboursWith :: (a -> b -> c) -> Neighbours a -> Neighbours b -> Neighbours c
+zipNeighboursWith = GHC.Base.liftA2
+zipNeighbours :: Neighbours a -> Neighbours b -> Neighbours (a,b)
+zipNeighbours = GHC.Base.liftA2 (,)
+
 mapWithDir :: (Direction -> a -> b) -> Neighbours a -> Neighbours b
 mapWithDir x = GHC.Base.liftA2 x neighboursDirection
 
@@ -246,6 +252,83 @@ neighbours (BoardPos x y) = Neighbours (BoardPos (x  ) (y-2))
                                        (BoardPos (x  ) (y+2))
                                        (BoardPos (x-1) (y+1))
                                        (BoardPos (x-1) (y-1))
+
+
+observeNeighbours :: Neighbours a -> Neighbours (a,a,a)
+observeNeighbours ns = mapWithDir (\d ma -> (inDirection ns $ rotateCCW d,ma,inDirection ns $ rotateCW d)) ns
+
+
+reachableCricket :: Map BoardPos a -> BoardPos -> [BoardPos]
+reachableCricket field bp = catMaybes $ Foldable.toList jumpedOverNeighbours
+    where
+        stoneAt :: BoardPos -> Bool
+        stoneAt x = x `Map.member` field
+        isNotFree :: BoardPos -> Maybe BoardPos
+        isNotFree n = if stoneAt n then Just n else Nothing
+        knownNeighbours = isNotFree <$> neighbours bp :: Neighbours (Maybe BoardPos)
+
+        jump :: Direction -> BoardPos -> BoardPos
+        jump dir bp | stoneAt bp = jump dir $ neighbour bp dir
+        jump dir bp = bp
+
+        jumpedOverNeighbours :: Neighbours (Maybe BoardPos)
+        jumpedOverNeighbours = mapWithDir (\d -> fmap (jump d)) knownNeighbours
+
+
+
+reachableSpider :: Map BoardPos a -> BoardPos -> [BoardPos]
+reachableSpider field bp0 = Set.toList . Set.fromList $ do
+    bp1 <- reachableBee field bp0
+    bp2 <- reachableBee field bp1
+    guard $ bp2/=bp0
+    bp3 <- reachableBee field bp2
+    guard $ bp3/=bp0
+    guard $ bp3/=bp1
+    return bp3
+
+
+
+reachableBug :: Map BoardPos [a] -> BoardPos -> [BoardPos]
+reachableBug field bp = catMaybes $ Foldable.toList elevatorAtmostOnce'
+    where
+        heightAt :: BoardPos -> Int
+        heightAt x = maybe 0 List.length $ x `Map.lookup` field
+        h :: Int
+        h = heightAt bp
+        ns = neighbours bp :: Neighbours BoardPos
+        observedNeighbours :: Neighbours (Int,Int,Int)
+        observedNeighbours = observeNeighbours (heightAt <$> ns)
+        elevatorAtmostOnce' :: Neighbours (Maybe BoardPos)
+        elevatorAtmostOnce' = (fmap . const) <$> ns <*> elevatorAtmostOnce
+        elevatorAtmostOnce :: Neighbours (Maybe ())
+        elevatorAtmostOnce = f <$> observedNeighbours
+            where
+                f (a,b,c) | min a c > max b h = Nothing -- NoSqueezing
+                          | (a,b,c,h) == (0,0,0,0) = Nothing
+                          | otherwise = Just ()
+
+
+-- TODO TODO TODO TODO TODO TODO TODO
+
+reachableBee :: Map BoardPos a -> BoardPos -> [BoardPos]
+reachableBee field bp = catMaybes $ Foldable.toList onlySlidingNoSqueezing
+    where
+        stoneAt :: BoardPos -> Bool
+        stoneAt x = x `Map.member` field
+        isFree :: BoardPos -> Maybe BoardPos
+        isFree n = if stoneAt n then Nothing else Just n
+        freeNeighbours = isFree <$> neighbours bp :: Neighbours (Maybe BoardPos)
+        observedNeighbours :: Neighbours (Maybe BoardPos,Maybe BoardPos,Maybe BoardPos)
+        observedNeighbours = observeNeighbours freeNeighbours
+        onlySlidingNoSqueezing :: Neighbours (Maybe BoardPos)
+        onlySlidingNoSqueezing = fmap f observedNeighbours
+            where
+                f (Nothing,Just a,Just _) = Just a
+                f (Just _,Just a,Nothing) = Just a
+                f _ = Nothing
+
+
+
 
 reachableAnt :: Map BoardPos a -> BoardPos -> [BoardPos]
 reachableAnt field bp = Set.toList . Set.delete bp . Set.fromList $ fmap fst $ List.takeWhile (/= end) $ List.tail $ List.iterate step end
@@ -346,9 +429,27 @@ bridges field = Set.fromList found_bridges
 
 movesOnField :: Player -> Map BoardPos [Stone] -> [Move]
 movesOnField player field = do
-    -- no boardpos that are bridges
-    -- TODO: use     bridges :: Map BoardPos a -> Set BoardPos
-    undefined -- TODO
+    -- no boardpos that are bridges, unless stones are stacked
+    let bri = bridges field :: Set BoardPos
+    (bp_from,stones@(stone:_)) <- Map.toList field
+    case stones of
+        (Stone p _:_) | p /= player -> []
+        [_] | Set.member bp_from bri -> []
+        _ -> [()]
+    --
+    let field' = Map.update (\case { [_] -> Nothing ; (_:s)->Just s }) bp_from field
+
+    bp_to <- case stone of
+                Stone _ Ant -> reachableAnt field' bp_from :: [BoardPos]
+                Stone _ Bee -> reachableBee field' bp_from :: [BoardPos]
+                Stone _ Cricket -> reachableCricket field' bp_from :: [BoardPos]
+                Stone _ Spider -> reachableSpider field' bp_from :: [BoardPos]
+                Stone _ Bug -> reachableBug field' bp_from :: [BoardPos]
+                        -- TODO TODO TODO TODO TODO TODO TODO
+
+
+    return $ Move stone (Just bp_from) bp_to
+
 
 -- | blackIsUp :: Bool
 possibleMoves :: Bool -> Board -> [Move]
