@@ -138,16 +138,41 @@ hiveDrawing = stoneDrawing (PixelRGBA8 0x7f 0x7f 0x7f 255) (PixelRGBA8 0x0 0x0 0
 
 
 type MousePos = R.Point
-hiveImage :: HiveGame -> Int -> Int -> MousePos -> IO DynamicImage
-hiveImage hivegame w h mp = do
+type ClickPressed = Bool
+hiveImage :: HiveGame -> Int -> Int -> MousePos -> [(ClickPressed,MousePos)] -> IO DynamicImage
+hiveImage hivegame w h currentMousePos mouseclicks = do
     (BoardView (_::Player,_::PlayerType,maybeVMove::Maybe VMove) (m::Map BoardPos ([Stone],Maybe VMove))) <- readIORef (hivegame_boardview hivegame)
     let isDragging = isJust maybeVMove
+        targets :: [BoardPos]
         targets = case maybeVMove of
                     Nothing -> [ bp | (bp,(_,Just _ :: Maybe VMove)) <- Map.toList m]
                     Just (VMove _ _ bps) -> bps
     let stoneX = 150
         stoneY = 100
-        drawing :: Drawing PixelRGBA8 ()
+        (Min minx,Max maxx,Min miny,Max maxy) = minmaxBoardPos $ Map.keys m
+        s :: Float
+        s = (fromIntegral w / fromIntegral (stoneX * (maxx-minx) + 200)) `min` (fromIntegral h / fromIntegral (stoneY * (maxy-miny) + 200))
+        trans =  R.scale s s <>
+                 R.translate (R.V2 (fromIntegral $ 100-minx*stoneX) (fromIntegral $ 100-miny*stoneY))
+
+        p_00 = R.applyTransformation trans (V2 0 0)
+        p_11 = R.applyTransformation trans (V2 (fromIntegral stoneX) (fromIntegral stoneY))
+        --p_mouse = let (V2 mx my) = currentMousePos in V2 (mx*fromIntegral w) (my*fromIntegral h)
+
+        toBoardMouse :: MousePos -> Point
+        toBoardMouse (V2 mx my) = let (V2 mx_ my_) = V2 (mx*fromIntegral w) (my*fromIntegral h)
+                                      (V2 px0 py0) = p_00
+                                      (V2 px1 py1) = p_11
+                                   in V2 ((mx_-px0)/(px1-px0)) ((my_-py0)/(py1-py0))
+        -- (p_mouse - p_00) / (p_11 - p_00)
+
+        is_within_hexagon :: Point -> Bool
+        is_within_hexagon (V2 x y) = (abs y < 0.9) && (abs y + abs x * 3 < 1.9)
+
+        hoverOverTarget :: MousePos -> Maybe BoardPos
+        hoverOverTarget mousepos = listToMaybe [ t | t@(BoardPos x y)<-targets, is_within_hexagon $ (toBoardMouse mousepos) - V2 (fromIntegral x) (fromIntegral y) ]
+
+    let drawing :: Drawing PixelRGBA8 ()
         drawing = mconcat $
                     [ R.withTransformation (R.translate (R.V2 (fromIntegral $ x*stoneX) (fromIntegral $ y*stoneY))) $ dr' stones
                     | (BoardPos x y,(stones,_ :: Maybe VMove)) <- Map.toList m
@@ -155,15 +180,27 @@ hiveImage hivegame w h mp = do
                     [ R.withTransformation (R.translate (R.V2 (fromIntegral $ x*stoneX) (fromIntegral $ y*stoneY))) $ targetMarking
                     | (BoardPos x y) <- targets
                     ]
-        (Min minx,Max maxx,Min miny,Max maxy) = minmaxBoardPos $ Map.keys m
-        s :: Float
-        s = (fromIntegral w / fromIntegral (stoneX * (maxx-minx) + 200)) `min` (fromIntegral h / fromIntegral (stoneY * (maxy-miny) + 200))
-        trans =  R.scale s s <>
-                 R.translate (R.V2 (fromIntegral $ 100-minx*stoneX) (fromIntegral $ 100-miny*stoneY))
 
-    return $ ImageRGBA8 $ R.renderDrawing w h (PixelRGBA8 0x7f 0x7f 0x7f 255)
-                        $ R.withTransformation trans
-                        $ drawing
+    let go :: [(ClickPressed,MousePos)] -> IO DynamicImage
+        go [] = do
+            return $ ImageRGBA8 $ R.renderDrawing w h (PixelRGBA8 0x7f 0x7f 0x7f 255)
+                                $ R.withTransformation trans
+                                $ drawing
+
+        go ((False,mc):rs) | not isDragging = go rs -- ignore mouse event
+        go ((False,mc):rs) | isDragging = case hoverOverTarget mc of
+                                            Nothing -> loosedrag >> cont rs
+                                            Just boardpos -> enddrag boardpos >> cont rs
+        go ((True,mc):rs) | isDragging = loosedrag >> cont rs
+        go ((True,mc):rs) | not isDragging = case hoverOverTarget mc of
+                                            Nothing -> go rs -- ignore mouse event
+                                            Just boardpos -> startdrag boardpos >> cont rs
+        cont rs = hiveImage hivegame w h currentMousePos rs
+        loosedrag = HiveGame.resetStone hivegame
+        enddrag boardpos = HiveGame.dropStone boardpos hivegame
+        startdrag boardpos = HiveGame.dragStone boardpos hivegame
+
+    go mouseclicks
 
 
     --return $ ImageRGBA8 $ R.renderDrawing w h (PixelRGBA8 0x7f 0x7f 0x7f 255)

@@ -77,7 +77,7 @@ initBoardView m board@Board{..} = BoardView (board_playing,currentPlayerType,Not
     where
         currentPlayerType = m Map.! board_playing
         insectcount = List.length(universe::[Insect])
-        (Min minx,Max maxx,Min miny,Max maxy) = minmaxBoardPos $ BoardPos (-insectcount) 0 : BoardPos insectcount 0 : Map.keys board_field
+        (Min (pred->minx),Max (succ->maxx),Min miny,Max maxy) = minmaxBoardPos $ BoardPos (1-insectcount) 0 : BoardPos (insectcount-1) 0 : Map.keys board_field
         view_field :: Map BoardPos ([Stone],Maybe VMove)
         view_field = Map.fromList $ home <> field
         blackIsUp :: Bool
@@ -138,6 +138,9 @@ dragStone bp HiveGame{..} = do
             Nothing -> bv
             Just (_ :: [Stone],mv) -> BoardView (p,pt,mv) $ Map.adjust (first List.tail) bp m
 
+resetStone :: HiveGame -> IO ()
+resetStone hivegame = atomicModifyIORef' (hivegame_boardview hivegame) $ (,()) . resetVMove
+
 dropStone :: BoardPos -> HiveGame -> IO ()
 dropStone bp_to hivegame@(HiveGame{..}) = do
     bv@(BoardView (p,pt,mv) m) <- readIORef hivegame_boardview
@@ -146,7 +149,7 @@ dropStone bp_to hivegame@(HiveGame{..}) = do
 
         Just (VMove stone bp_from bps) | bp_to `List.elem` bps -> do
             let move = Move stone (Just bp_from) bp_to
-            board <- atomicModifyIORef' hivegame_board (\b->(applyMove move b,b))
+            board <- atomicModifyIORef' hivegame_board $ (\b->(b,b)) . applyMove move
             let bv' = initBoardView hivegame_playertypes board
             writeIORef hivegame_boardview bv'
             case bv' of
@@ -200,6 +203,13 @@ data Direction = North | NorthEast | SouthEast | South | SouthWest | NorthWest
 instance Universe Direction
 instance Finite Direction
 
+rotateCW :: Direction -> Direction
+rotateCW NorthWest = North
+rotateCW d = succ d
+rotateCCW :: Direction -> Direction
+rotateCCW North = NorthWest
+rotateCCW d = pred d
+
 data Neighbours a = Neighbours a a a a a a
     deriving (Eq,Ord,Show,Functor,Foldable)
 
@@ -222,10 +232,27 @@ neighbours (BoardPos x y) = Neighbours (BoardPos (x  ) (y-2))
                                        (BoardPos (x-1) (y-1))
 
 reachableAnt :: Map BoardPos a -> BoardPos -> [BoardPos]
-reachableAnt field = undefined -- TODO
+reachableAnt field bp = Set.toList . Set.delete bp . Set.fromList $ fmap fst $ List.takeWhile (/= end) $ List.tail $ List.iterate step end
+    where
+        stoneAt :: BoardPos -> Bool
+        stoneAt x = x `Map.member` field
+        end :: (BoardPos,Direction) -- BoardPos is empty, looking at a stone in Direction
+        end = (bp,List.head [ d | d<-universe, stoneAt $ neighbour bp d ])
+
+        isFree :: (BoardPos,Direction) -> Maybe BoardPos
+        isFree (bp,d) = let n = neighbour bp d in if stoneAt n then Nothing else Just n
+
+        step :: (BoardPos,Direction) -> (BoardPos,Direction)
+        step (bp,d) = let e = rotateCW d
+                          f = rotateCW e
+                       in case (isFree (bp,e),isFree (bp,f)) of
+                            (Nothing,_) -> (bp,e)
+                            (Just _,Nothing) -> (bp,f)
+                            (Just bp',_) -> (bp',rotateCCW d)
+
 
 reachableOutside :: Player -> Map BoardPos [Stone] -> [BoardPos]
-reachableOutside player field = undefined
+reachableOutside player field = List.filter isValid outsides
     where
         bp0 :: BoardPos
         bp0 = case List.foldl1' (<>) [(Max (y,bp))|bp@(BoardPos x y)<-Map.keys field] of

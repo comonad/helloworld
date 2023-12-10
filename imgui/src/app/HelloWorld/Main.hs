@@ -97,8 +97,17 @@ data Mouseevent = Mouseevent
 data Mousedata = Mousedata
     { md_pos :: !(SDL.Point SDL.V2 Int32)
     , md_keys :: !(Set Int)
-    , md_events :: ![Mouseevent]
+    , md_events :: ![Mouseevent] -- ascending in timestamp
     }
+
+mouseClicks :: Model -> [(Bool,SDL.Point SDL.V2 Int32)]
+mouseClicks Model{mousedata=Mousedata{md_events}} = do
+    Mouseevent{me_pos,me_type} <- md_events
+    b <- case me_type of
+            MouseeventKeyPress 1 _ -> [True]
+            MouseeventKeyRelease 1 _ -> [False]
+            _ -> []
+    return (b,me_pos)
 
 data Model = Model {tabledata :: IORef Tabledata, mousedata::Mousedata, tex1::Maybe Tex, model_font::ImGui_Font.Font, hivegame::HiveGame.HiveGame}
 initModel :: IO (IORef Model)
@@ -151,14 +160,17 @@ mainLoop window ioref_model = unlessQuit $ \mouseevts -> do
                 imvecToV2 (ImGui.ImVec2 x y) = (SDL.V2 x y)
                 sdl2r :: SDL.V2 Float -> R.V2 Float
                 sdl2r (SDL.V2 x y) = (R.V2 x y)
-            let mpos :: SDL.V2 Float
-                mpos = case md_pos (mousedata model) of SDL.P v2 -> fmap fromIntegral v2 - imvecToV2 (childwindowpos <> contentpos <> ImGui.ImVec2 1 1)
-                rmpos :: R.V2 Float
-                rmpos = sdl2r $ mpos / (SDL.V2 (sizeW-2) (sizeH-2))
+            let rmpos :: SDL.Point SDL.V2 Int32 -> R.V2 Float
+                rmpos (SDL.P v2) = sdl2r $ mpos / (SDL.V2 (sizeW-2) (sizeH-2))
+                    where
+                        mpos :: SDL.V2 Float
+                        mpos = fmap fromIntegral v2 - imvecToV2 (childwindowpos <> contentpos <> ImGui.ImVec2 1 1)
+
+            let mclicks = fmap rmpos <$> mouseClicks model :: [(Bool,R.V2 Float)]
 
             do
                 hivegame<-hivegame<$>readIORef ioref_model
-                img <- Hive.hiveImage hivegame (round sizeW-2) (round sizeH-2) rmpos
+                img <- Hive.hiveImage hivegame (round sizeW-2) (round sizeH-2) (rmpos $ md_pos (mousedata model)) mclicks
                 tex <- Canvas.toTexture (tex1 model) img
                 atomicModifyIORef ioref_model \m -> (,()) $ m{tex1=Just tex}
 
@@ -299,7 +311,8 @@ mainLoop window ioref_model = unlessQuit $ \mouseevts -> do
 
         let modifyMousedata f = atomicModifyIORef ioref_model $ (,()) . \m -> m{mousedata = f (mousedata m)}
         modifyMousedata \m->m{md_events=[]}
-        forM_ (List.reverse evts) \case
+        -- print $ SDL.eventTimestamp <$> evts -- evts are ascending in timestamp
+        forM_ evts \case
             SDL.Event{eventTimestamp,eventPayload=SDL.MouseMotionEvent e,..} -> modifyMousedata \m->
                 let me = Mouseevent { me_pos = (SDL.mouseMotionEventPos e)
                                     , me_timestamp = eventTimestamp
@@ -323,6 +336,7 @@ mainLoop window ioref_model = unlessQuit $ \mouseevts -> do
                                     }
                  in m{md_events=me:md_events m}
             _ -> return ()
+        modifyMousedata \m->m{md_events=List.reverse $ md_events m}
 
         let mouseevts = evts >>= \ev -> case SDL.eventPayload ev of
                                             SDL.MouseMotionEvent e -> [ev]
