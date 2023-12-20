@@ -19,7 +19,8 @@
 # resolver: https://example.com/snapshots/2018-01-01.yaml
 #resolver:
 #  url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/21/22.yaml
-resolver: lts-21.22 # LTS Haskell 21.22 (ghc-9.4.8) Published on 2023-11-21
+resolver: lts-21.25 # LTS Haskell 21.25 (ghc-9.4.8) Published on 2023-12-16
+#resolver: lts-21.22 # LTS Haskell 21.22 (ghc-9.4.8) Published on 2023-11-21
 
 
 # User packages to be built.
