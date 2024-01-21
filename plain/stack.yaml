@@ -19,9 +19,10 @@
 # resolver: https://example.com/snapshots/2018-01-01.yaml
 #resolver:
 #  url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/21/22.yaml
-resolver: lts-21.22 # LTS Haskell 21.22 (ghc-9.4.8) Published on 2023-11-21
-
-
+#resolver: lts-21.22 # LTS Haskell 21.22 (ghc-9.4.8) Published on 2023-11-21
+#resolver: lts-21.21 # LTS Haskell 21.21 (ghc-9.4.7) Published on 2023-11-18
+#resolver: lts-21.11 # LTS Haskell 21.11 (ghc-9.4.6) Published on 2023-09-09
+resolver: lts-22.7 # LTS Haskell 22.7 (ghc-9.6.4) Published on 2024-01-19
 # User packages to be built.
 # Various formats can be used as shown in the example below.
 #

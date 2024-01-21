@@ -4,7 +4,7 @@ name:                helloworld
 version:             0.1.0.0
 # synopsis:
 # description:
-license:             BSD3
+license:             BSD-3-Clause
 license-file:        LICENSE
 author:              Marc A. Ziegert
 copyright:           comonad@gmail.com
@@ -63,16 +63,22 @@ dependencies:
 #  - Color
 #  - reflection >= 2.1.6
 
+library:
+    source-dirs: src/helloworld1
+    generated-other-modules: Paths_helloworld
 
-internal-libraries:
-    helloworld1:
-        source-dirs: src/helloworld1
+#internal-libraries:
+    #helloworld1:
+        #source-dirs: src/helloworld1
 
 executables:
     HelloWorld:
         source-dirs: src/app
+        when: # https://stackoverflow.com/a/67521855/460175
+            - condition: false
+              generated-other-modules: Paths_helloworld
         dependencies:
-          - helloworld1
+          - helloworld
           #- monomer >= 1.5.1.0
           #- text-show >= 3.8.5
           #- unix >= 2.7.2.2
