@@ -23,6 +23,9 @@
 #resolver: lts-21.21 # LTS Haskell 21.21 (ghc-9.4.7) Published on 2023-11-18
 #resolver: lts-21.11 # LTS Haskell 21.11 (ghc-9.4.6) Published on 2023-09-09
 resolver: lts-22.7 # LTS Haskell 22.7 (ghc-9.6.4) Published on 2024-01-19
+resolver: lts-22.31 # LTS Haskell 22.31 (ghc-9.6.6) Published on 2024-07-27
+#https://www.stackage.org/lts
+
 # User packages to be built.
 # Various formats can be used as shown in the example below.
 #
